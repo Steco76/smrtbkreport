@@ -141,27 +141,31 @@ def convert_sales_period_to_date(df):
 
 def add_additional_columns(df):
     """
-    Fügt die Spalten 'E-Books', 'Paperback/Hardcover' und 'Gelesene Seiten' basierend auf 'Zahlungsplan' hinzu.
+    Fügt die Spalten 'E-Books', 'Paperback/Hardcover', 'Gelesene Seiten' und 'Bonus' basierend auf 'Zahlungsplan' hinzu.
     """
     # Initialisiere die neuen Spalten mit 0
     df['E-Books'] = 0
     df['Paperback/Hardcover'] = 0
     df['Gelesene Seiten'] = 0
+    df['Bonus'] = 0  # Neue Spalte 'Bonus' initialisiert mit 0
     
     # Bedingungen
     df.loc[df['Zahlungsplan'] == "Standard", 'E-Books'] = df['Netto verkaufte Einheiten oder gelesene KENP-Seiten**']
     df.loc[df['Zahlungsplan'].isin(["Standard – Taschenbuch", "Standard – Gebundene Ausgabe"]), 'Paperback/Hardcover'] = df['Netto verkaufte Einheiten oder gelesene KENP-Seiten**']
     df.loc[df['Zahlungsplan'] == "Gelesene KENP-Seiten (Kindle Edition Normalized Pages Read)", 'Gelesene Seiten'] = df['Netto verkaufte Einheiten oder gelesene KENP-Seiten**']
     
+    # Bedingung für 'Bonus' Spalte
+    df.loc[df['Zahlungsplan'].isin(["All-Stars-Bonus", "All Star Bonus"]), 'Bonus'] = df['Tantiemen']
+    
     return df
 
 def aggregate_einnahmen_pro_autor_wahrung(df):
     """
-    Aggregiert die Gesamtsumme der Einnahmen, Gesamtverkäufe, E-Books, Paperback/Hardcover und Gelesene Seiten
+    Aggregiert die Gesamtsumme der Einnahmen, Gesamtverkäufe, E-Books, Paperback/Hardcover, Gelesene Seiten und Bonus
     pro Autor, Währung, Jahr, Monat und Titel.
     """
     aggregated_df = df.groupby(['Autor', 'Währung', 'Jahr', 'Monat', 'Monat_num', 'Titel'])[
-        ['Tantiemen', 'Gesamtverkäufe', 'E-Books', 'Paperback/Hardcover', 'Gelesene Seiten']
+        ['Tantiemen', 'Gesamtverkäufe', 'E-Books', 'Paperback/Hardcover', 'Gelesene Seiten', 'Bonus']
     ].sum().reset_index()
     return aggregated_df
 
@@ -212,7 +216,7 @@ def main():
         "📂 Excel-Datei(en) auswählen:",
         type=["xlsx"],
         accept_multiple_files=True,
-        # help="Es können mehrere Dateiein gleichzeitg ausgewählt werden.",
+        # help="Es können mehrere Dateien gleichzeitg ausgewählt werden.",
         key=f"uploaded_files_{st.session_state.file_uploader_key}"
     )
     
@@ -256,7 +260,7 @@ def main():
                     st.success(f"{len(combined_data)} Datei(en) geladen mit insgesamt {len(combined_df)} Datensätzen.")
                     # **Ende des neuen Abschnitts**
                     
-                    # Aggregation: Gesamtsumme der Einnahmen, Gesamtverkäufe, E-Books, Paperback/Hardcover und Gelesene Seiten pro Autor, Währung, Jahr, Monat und Titel
+                    # Aggregation: Gesamtsumme der Einnahmen, Gesamtverkäufe, E-Books, Paperback/Hardcover, Gelesene Seiten und Bonus pro Autor, Währung, Jahr, Monat und Titel
                     aggregated_df = aggregate_einnahmen_pro_autor_wahrung(combined_df)
                     
                     # Speichern der aggregierten Daten in Session State für spätere Verwendung
@@ -273,7 +277,7 @@ def main():
     
     if not aggregated_df.empty:
         
-        # Auswahl von Autor, Titel, Jahr, Monat und Währung zur Anzeige der Metriken
+        # Auswahl von Autor, Titel, Jahr, Monat, Währung und Bonus zur Anzeige der Metriken
         
         # Autor Auswahl
         autor_unique = sorted(aggregated_df['Autor'].unique())
@@ -416,6 +420,13 @@ def main():
             index=default_index
         )
         
+        # 3. Bonus Filter hinzufügen
+        bonus_filter = st.selectbox(
+            "🎁 Bonus Filter",
+            ["Alle", "Mit Bonus", "Ohne Bonus"],
+            index=0
+        )
+        
         # Filtere die Daten basierend auf den Auswahlen
         filtered_df = aggregated_df.copy()
 
@@ -444,12 +455,19 @@ def main():
         if währung != "Alle" and währung != "Keine Währung verfügbar":
             filtered_df = filtered_df[filtered_df['Währung'] == währung]
         
+        # Filter Bonus
+        if bonus_filter == "Mit Bonus":
+            filtered_df = filtered_df[filtered_df['Bonus'] > 0]
+        elif bonus_filter == "Ohne Bonus":
+            filtered_df = filtered_df[filtered_df['Bonus'] == 0]
+        
         if not filtered_df.empty:
             # Sortiere nach Jahr und Monat_num
             filtered_df = filtered_df.sort_values(by=['Jahr', 'Monat_num'])
             
             # Berechnung der Gesamtmetriken
             total_tantiemen = filtered_df['Tantiemen'].sum()
+            total_bonus = filtered_df['Bonus'].sum()
             total_gesamtkäufe = filtered_df['Gesamtverkäufe'].sum()
             total_ebooks = filtered_df['E-Books'].sum()
             total_paperback = filtered_df['Paperback/Hardcover'].sum()
@@ -473,6 +491,7 @@ def main():
     
             # Formatierung der Metriken
             formatted_tantiemen = format_eu_number(total_tantiemen, decimal_places=2) + f" {symbol}"
+            formatted_bonus = format_eu_number(total_bonus, decimal_places=2) + f" {symbol}"
             formatted_gesamtkäufe = format_eu_number(total_gesamtkäufe)
             formatted_gelesene_seiten = format_eu_number(total_gelesene_seiten)
             
@@ -490,12 +509,12 @@ def main():
                 """, unsafe_allow_html=True)
             
             # Layout für Metriken - Zeile 1
-           # st.markdown("### 📈 Metriken Übersicht")
+            # st.markdown("### 📈 Metriken Übersicht")
             row1_col1, row1_col2 = st.columns(2)
             with row1_col1:
                 st.metric("💰 Gesamteinnahmen", formatted_tantiemen)
             with row1_col2:
-                st.metric("🏆 Bonus", "Nicht definiert")  # Placeholder für Bonus
+                st.metric("🏆 Bonus", formatted_bonus)
             
             # Layout für Metriken - Zeile 2
             row2_col1, row2_col2, row2_col3, row2_col4 = st.columns(4)
@@ -517,9 +536,11 @@ def main():
             if 'Jahr' in display_df.columns:
                 display_df['Jahr'] = display_df['Jahr'].astype(int)
 
-            # Format 'Tantiemen' auf EU-Format mit zwei Dezimalstellen
+            # Format 'Tantiemen' und 'Bonus' auf EU-Format mit zwei Dezimalstellen
             if 'Tantiemen' in display_df.columns:
                 display_df['Tantiemen'] = display_df['Tantiemen'].apply(lambda x: format_eu_number(x, decimal_places=2))
+            if 'Bonus' in display_df.columns:
+                display_df['Bonus'] = display_df['Bonus'].apply(lambda x: format_eu_number(x, decimal_places=2))
             
             # Format andere numerische Spalten außer 'Jahr' ohne Dezimalstellen
             for col in ['Gesamtverkäufe', 'E-Books', 'Paperback/Hardcover', 'Gelesene Seiten']:
@@ -534,13 +555,16 @@ def main():
 
             # Optional: Entfernen Sie die separaten 'Monat' und 'Jahr' Spalten für eine bessere Darstellung
             display_df = display_df.drop(columns=['Monat', 'Jahr'])
-            st.dataframe(display_df, column_order=['Verkaufsmonat', 'Autor', 'Titel', 'Währung', 'Tantiemen', 'Gesamtverkäufe', 'E-Books', 'Paperback/Hardcover','Gelesene Seiten'], hide_index=True)
+            st.dataframe(display_df, column_order=['Verkaufsmonat', 'Autor', 'Titel', 'Währung', 'Tantiemen', 'Bonus', 'Gesamtverkäufe', 'E-Books', 'Paperback/Hardcover','Gelesene Seiten'], hide_index=True)
             
            # 2. Dynamische Erstellung des Dateinamens beim Download
             if jahr == "Alle":
-                year_from = aggregated_df['Jahr'].min()
-                year_to = aggregated_df['Jahr'].max()
-                dateiname = f"{year_from}_bis_{year_to}_Einnahmen"
+                if not aggregated_df['Jahr'].empty:
+                    year_from = aggregated_df['Jahr'].min()
+                    year_to = aggregated_df['Jahr'].max()
+                    dateiname = f"{year_from}_bis_{year_to}_Einnahmen"
+                else:
+                    dateiname = "Einnahmen"
             else:
                 if monat != "Alle":
                     dateiname = f"{jahr}_{monat}_Einnahmen"
