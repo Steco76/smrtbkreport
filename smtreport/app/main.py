@@ -514,7 +514,7 @@ def main():
             with row1_col1:
                 st.metric("💰 Gesamteinnahmen", formatted_tantiemen)
             with row1_col2:
-                st.metric("🏆 Bonus", formatted_bonus)
+                st.metric("🏆 Bonus (in Gesamteinnahmen enthalten)", formatted_bonus)
             
             # Layout für Metriken - Zeile 2
             row2_col1, row2_col2, row2_col3, row2_col4 = st.columns(4)
