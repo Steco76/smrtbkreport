@@ -4,6 +4,7 @@ import streamlit as st
 import pandas as pd
 import openpyxl
 import io
+import plotly.express as px
 
 def load_excel_file(uploaded_file):
     try:
@@ -151,7 +152,7 @@ def add_additional_columns(df):
     
     # Bedingungen
     df.loc[df['Zahlungsplan'] == "Standard", 'E-Books'] = df['Netto verkaufte Einheiten oder gelesene KENP-Seiten**']
-    df.loc[df['Zahlungsplan'].isin(["Standard – Taschenbuch", "Standard – Gebundene Ausgabe"]), 'Paperback/Hardcover'] = df['Netto verkaufte Einheiten oder gelesene KENP-Seiten**']
+    df.loc[df['Zahlungsplan'].isin(["Standard – Taschenbuch", "Standard – Gebundene Ausgabe"]), 'Paperback/Hardcover'] = df['Netto verkaufte Einheiten oder gelesene KENP-Seiten**']
     df.loc[df['Zahlungsplan'] == "Gelesene KENP-Seiten (Kindle Edition Normalized Pages Read)", 'Gelesene Seiten'] = df['Netto verkaufte Einheiten oder gelesene KENP-Seiten**']
     
     # Bedingung für 'Bonus' Spalte
@@ -188,8 +189,8 @@ def format_eu_number(x, decimal_places=0):
 def main():
     
     # Überschrift und Beschreibung (optional)
-    # st.title("📚 Übersicht Buchverkäufe")
-    # st.write("Laden Sie mehrere Excel-Dateien hoch und verarbeiten Sie die Daten.")
+    st.title("📚 Übersicht Buchverkäufe")
+    st.write("Laden Sie mehrere Excel-Dateien hoch und verarbeiten Sie die Daten.")
     
     # Mapping der deutschen Monatsnamen zu Monatsnummern für Sortierung
     month_order = {
@@ -207,17 +208,17 @@ def main():
         'Dezember': 12
     }
     
-    # Initialisiere den Session State für den File Uploader Key, falls nicht vorhanden
-    if 'file_uploader_key' not in st.session_state:
-        st.session_state.file_uploader_key = 0
+    # Initialisiere den Session State für den aggregierten DataFrame, falls nicht vorhanden
+    if 'aggregated_einnahmen' not in st.session_state:
+        st.session_state['aggregated_einnahmen'] = pd.DataFrame()
     
-    # Datei-Upload erlauben mit dynamischem Key
+    # Datei-Upload erlauben mit statischem Key
     uploaded_files = st.file_uploader(
         "📂 Excel-Datei(en) auswählen:",
         type=["xlsx"],
         accept_multiple_files=True,
-        # help="Es können mehrere Dateien gleichzeitg ausgewählt werden.",
-        key=f"uploaded_files_{st.session_state.file_uploader_key}"
+        # help="Es können mehrere Dateien gleichzeitig ausgewählt werden.",
+        key="uploaded_files"
     )
     
     # Filtern von doppelten Dateien innerhalb der aktuellen Upload
@@ -265,9 +266,6 @@ def main():
                     
                     # Speichern der aggregierten Daten in Session State für spätere Verwendung
                     st.session_state['aggregated_einnahmen'] = aggregated_df
-                    
-                    # Reset des File Uploader durch Aktualisieren des Keys
-                    st.session_state.file_uploader_key += 1
                     
                 else:
                     st.error("Keine gültigen Daten gefunden oder Fehler beim Verarbeiten der Dateien.")
@@ -462,6 +460,9 @@ def main():
             filtered_df = filtered_df[filtered_df['Bonus'] == 0]
         
         if not filtered_df.empty:
+            # Erstellen Sie die Spalte 'Verkaufsmonat' in filtered_df
+            filtered_df['Verkaufsmonat'] = filtered_df['Monat'] + ' ' + filtered_df['Jahr'].astype(str)
+            
             # Sortiere nach Jahr und Monat_num
             filtered_df = filtered_df.sort_values(by=['Jahr', 'Monat_num'])
             
@@ -488,7 +489,7 @@ def main():
 
             # Holen Sie das Symbol basierend auf der ausgewählten Währung
             symbol = currency_symbols.get(währung, '')
-    
+
             # Formatierung der Metriken
             formatted_tantiemen = format_eu_number(total_tantiemen, decimal_places=2) + f" {symbol}"
             formatted_bonus = format_eu_number(total_bonus, decimal_places=2) + f" {symbol}"
@@ -509,12 +510,11 @@ def main():
                 """, unsafe_allow_html=True)
             
             # Layout für Metriken - Zeile 1
-            # st.markdown("### 📈 Metriken Übersicht")
             row1_col1, row1_col2 = st.columns(2)
             with row1_col1:
                 st.metric("💰 Gesamteinnahmen", formatted_tantiemen)
             with row1_col2:
-                st.metric("🏆 Bonus (in Gesamteinnahmen enthalten)", formatted_bonus)
+                st.metric("🏆 Bonus", formatted_bonus)
             
             # Layout für Metriken - Zeile 2
             row2_col1, row2_col2, row2_col3, row2_col4 = st.columns(4)
@@ -574,11 +574,11 @@ def main():
             # Fügen Sie den Autorennamen hinzu, falls ein spezifischer Autor ausgewählt wurde
             if autor != "Alle" and autor != "Keine Titel verfügbar":
                 dateiname += f"_{autor.replace(' ', '_')}"
-    
+
             # Fügen Sie den Titel hinzu, falls ein spezifischer Titel ausgewählt wurde
             if titel != "Alle" and titel != "Keine Titel verfügbar":
                 dateiname += f"_{titel.replace(' ', '_')}"
-    
+
             dateiname += ".xlsx"
             
             # Button zum Herunterladen des gefilterten DataFrames als Excel-Datei mit dynamischem Dateinamen
@@ -595,8 +595,58 @@ def main():
                 file_name=dateiname,
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
             )
+            
+            # **Neuer Abschnitt für die Plotly Chart Darstellung**
+            # Überprüfen, ob mehrere Monate vorhanden sind
+            if filtered_df['Verkaufsmonat'].nunique() > 1:
+                # Aggregiere die Tantiemen nach Verkaufsmonat
+                chart_data = filtered_df.groupby('Verkaufsmonat')[['Tantiemen', 'Gelesene Seiten', 'Gesamtverkäufe']].sum().reset_index()
+                
+                # Extrahiere Jahr und Monat und füge sie als separate Spalten hinzu
+                chart_data['Jahr_num'] = chart_data['Verkaufsmonat'].apply(lambda x: int(x.split()[1]) if len(x.split()) > 1 else 0)
+                chart_data['Monat_num'] = chart_data['Verkaufsmonat'].apply(lambda x: month_order.get(x.split()[0], 13))
+                
+                # Sortiere nach Jahr und Monatnummer aufsteigend
+                chart_data = chart_data.sort_values(['Jahr_num', 'Monat_num'])
+                
+                # Optional: Entferne die Hilfsspalten nach der Sortierung
+                chart_data = chart_data.drop(columns=['Jahr_num', 'Monat_num'])
+                
+                # Erstelle eine Plotly Bar Chart mit sortierter Verkaufsmonat
+                fig = px.bar(
+                    chart_data, 
+                    x='Verkaufsmonat', 
+                    y='Tantiemen', 
+                    title='📈 Übersicht der Tantiemen nach Verkaufsmonat',
+                    labels={'Tantiemen': 'Tantiemen', 'Verkaufsmonat': 'Monat und Jahr'},
+                    text_auto=True,
+                    hover_data={
+                        'Verkaufsmonat': False,
+                        'Tantiemen': ':,.2f',
+                        'Gelesene Seiten': ':,.0f',
+                        'Gesamtverkäufe': ':,.0f'
+                    }
+                )
+                
+                # Entferne die Beschriftungen der X- und Y-Achse
+                fig.update_layout(
+                    xaxis_title='',
+                    yaxis_title=''
+                )
+                
+                # Optional: Winkelt die x-Achsen-Beschriftung für bessere Lesbarkeit
+                fig.update_layout(
+                    xaxis=dict(
+                        tickangle=45
+                    )
+                )
+                
+                # Anzeige der Chart in Streamlit
+                st.plotly_chart(fig, use_container_width=True)
+            # **Ende des neuen Abschnitts**
         else:
                 st.info("🟡 Keine Daten gefunden für die ausgewählten Filter.")
 
+# Stellen Sie sicher, dass dieser Block **außerhalb** der `main()`-Funktion steht
 if __name__ == "__main__":
     main()
